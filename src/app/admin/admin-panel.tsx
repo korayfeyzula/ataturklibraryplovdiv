@@ -18,6 +18,9 @@ import {
   Lock,
   Eye,
   EyeOff,
+  Loader2,
+  Star,
+  Languages,
 } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -29,57 +32,39 @@ import {
   LANG_LABELS,
   SUPPORTED_LANGS,
 } from "@/lib/config";
-import { sampleEvents, formatEventDate } from "@/lib/events";
+import {
+  useEvents,
+  createEvent,
+  updateEvent,
+  deleteEvent,
+  formatEventDate,
+  type EventData,
+  type ContentBlock,
+} from "@/lib/events";
+import { supabase, uploadImage } from "@/lib/supabase";
+import { translateField } from "@/lib/translate";
 
 const emptyLangField: Record<Lang, string> = { en: "", bg: "", tr: "" };
 
-interface ContentBlock {
-  type: "text" | "image" | "carousel";
-  value: string;
-  text: Record<Lang, string>;
-  caption: Record<Lang, string>;
-  images?: string[];
-}
-
 interface EventFormData {
   title: Record<Lang, string>;
-  category: string;
+  category: Record<Lang, string>;
   coverImage: string;
   summary: Record<Lang, string>;
   date: string;
   contentBlocks: ContentBlock[];
+  isHighlighted: boolean;
 }
 
 const emptyForm: EventFormData = {
   title: { en: "", bg: "", tr: "" },
-  category: "",
+  category: { en: "", bg: "", tr: "" },
   coverImage: "",
   summary: { en: "", bg: "", tr: "" },
   date: new Date().toISOString().split("T")[0],
   contentBlocks: [],
+  isHighlighted: false,
 };
-
-// Convert shared events to admin form data format
-const initialEvents: (EventFormData & { id: string })[] = sampleEvents.map(
-  (e) => ({
-    id: e.id,
-    title: { ...e.title },
-    category: e.category.en,
-    coverImage: e.coverImage,
-    summary: { ...e.summary },
-    date: e.date,
-    contentBlocks: [],
-  })
-);
-
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
 
 export function AdminPanel() {
   const { lang } = useLanguage();
@@ -101,13 +86,31 @@ export function AdminPanel() {
     }
     setAuthChecked(true);
   }, []);
-  const [events, setEvents] =
-    useState<(EventFormData & { id: string })[]>(initialEvents);
+
+  const { events, loading, reload, setEvents } = useEvents();
   const [isEditing, setIsEditing] = useState(false);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [form, setForm] = useState<EventFormData>(emptyForm);
   const [editLang, setEditLang] = useState<Lang>("en");
+  const [saving, setSaving] = useState(false);
+  const [translating, setTranslating] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<
+    "checking" | "connected" | "error" | "local"
+  >(supabase ? "checking" : "local");
   const coverInputRef = useRef<HTMLInputElement>(null);
+
+  // Test Supabase connection on mount
+  useEffect(() => {
+    if (!supabase || !isAuthenticated) return;
+    (async () => {
+      try {
+        const { error } = await supabase.from("events").select("id").limit(1);
+        setConnectionStatus(error ? "error" : "connected");
+      } catch {
+        setConnectionStatus("error");
+      }
+    })();
+  }, [isAuthenticated]);
 
   function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -124,16 +127,17 @@ export function AdminPanel() {
     setForm({
       ...emptyForm,
       title: { en: "", bg: "", tr: "" },
+      category: { en: "", bg: "", tr: "" },
       summary: { en: "", bg: "", tr: "" },
     });
     setCurrentId(null);
     setIsEditing(true);
   }
 
-  function handleEdit(event: (typeof events)[number]) {
+  function handleEdit(event: EventData) {
     setForm({
       title: { ...event.title },
-      category: event.category,
+      category: { ...event.category },
       coverImage: event.coverImage,
       summary: { ...event.summary },
       date: event.date,
@@ -141,26 +145,102 @@ export function AdminPanel() {
         ...b,
         images: b.images ? [...b.images] : undefined,
       })),
+      isHighlighted: event.isHighlighted,
     });
     setCurrentId(event.id);
     setIsEditing(true);
   }
 
-  function handleDelete(id: string) {
-    if (confirm("Are you sure you want to delete this event?")) {
+  async function handleDelete(id: string) {
+    if (!confirm("Are you sure you want to delete this event?")) return;
+
+    if (supabase) {
+      await deleteEvent(id);
+      await reload();
+    } else {
       setEvents((prev) => prev.filter((e) => e.id !== id));
     }
   }
 
-  function handleSave() {
-    if (currentId) {
-      setEvents((prev) =>
-        prev.map((e) => (e.id === currentId ? { ...form, id: currentId } : e))
-      );
-    } else {
-      setEvents((prev) => [...prev, { ...form, id: String(Date.now()) }]);
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const payload = {
+        title: form.title,
+        category: form.category,
+        date: form.date,
+        summary: form.summary,
+        coverImage: form.coverImage,
+        contentBlocks: form.contentBlocks,
+        isHighlighted: form.isHighlighted,
+      };
+
+      if (supabase) {
+        if (currentId) {
+          await updateEvent(currentId, payload);
+        } else {
+          await createEvent(payload);
+        }
+        await reload();
+      } else {
+        // Local state fallback
+        if (currentId) {
+          setEvents((prev) =>
+            prev.map((e) =>
+              e.id === currentId ? { ...payload, id: currentId } : e
+            )
+          );
+        } else {
+          setEvents((prev) => [
+            ...prev,
+            { ...payload, id: String(Date.now()) },
+          ]);
+        }
+      }
+      setIsEditing(false);
+    } finally {
+      setSaving(false);
     }
-    setIsEditing(false);
+  }
+
+  async function handleTranslateAll() {
+    setTranslating(true);
+    try {
+      const [title, category, summary] = await Promise.all([
+        translateField(form.title, true),
+        translateField(form.category, true),
+        translateField(form.summary, true),
+      ]);
+
+      const translatedBlocks = await Promise.all(
+        form.contentBlocks.map(async (block) => {
+          if (block.type === "text" && block.text.bg.trim()) {
+            const text = await translateField(block.text, true);
+            return { ...block, text };
+          }
+          if (
+            (block.type === "image" || block.type === "carousel") &&
+            block.caption.bg.trim()
+          ) {
+            const caption = await translateField(block.caption, true);
+            return { ...block, caption };
+          }
+          return block;
+        })
+      );
+
+      setForm((prev) => ({
+        ...prev,
+        title,
+        category,
+        summary,
+        contentBlocks: translatedBlocks,
+      }));
+    } catch {
+      // Partial translations remain in form state
+    } finally {
+      setTranslating(false);
+    }
   }
 
   function addBlock(type: "text" | "image" | "carousel") {
@@ -187,7 +267,12 @@ export function AdminPanel() {
     });
   }
 
-  function updateBlockLang(index: number, field: "text" | "caption", lang: Lang, value: string) {
+  function updateBlockLang(
+    index: number,
+    field: "text" | "caption",
+    lang: Lang,
+    value: string
+  ) {
     setForm((prev) => {
       const blocks = [...prev.contentBlocks];
       blocks[index] = {
@@ -208,8 +293,8 @@ export function AdminPanel() {
   async function handleCoverUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const dataUrl = await fileToDataUrl(file);
-    setForm((prev) => ({ ...prev, coverImage: dataUrl }));
+    const url = await uploadImage(file);
+    setForm((prev) => ({ ...prev, coverImage: url }));
   }
 
   async function handleImageBlockUpload(
@@ -218,8 +303,8 @@ export function AdminPanel() {
   ) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const dataUrl = await fileToDataUrl(file);
-    updateBlock(blockIndex, "value", dataUrl);
+    const url = await uploadImage(file);
+    updateBlock(blockIndex, "value", url);
   }
 
   async function handleCarouselUpload(
@@ -230,7 +315,7 @@ export function AdminPanel() {
     if (!files || files.length === 0) return;
     const newImages: string[] = [];
     for (let i = 0; i < files.length; i++) {
-      newImages.push(await fileToDataUrl(files[i]));
+      newImages.push(await uploadImage(files[i]));
     }
     setForm((prev) => {
       const blocks = [...prev.contentBlocks];
@@ -253,13 +338,20 @@ export function AdminPanel() {
     });
   }
 
-  function moveCarouselImage(blockIndex: number, imageIndex: number, direction: -1 | 1) {
+  function moveCarouselImage(
+    blockIndex: number,
+    imageIndex: number,
+    direction: -1 | 1
+  ) {
     setForm((prev) => {
       const blocks = [...prev.contentBlocks];
       const images = [...(blocks[blockIndex].images || [])];
       const newIndex = imageIndex + direction;
       if (newIndex < 0 || newIndex >= images.length) return prev;
-      [images[imageIndex], images[newIndex]] = [images[newIndex], images[imageIndex]];
+      [images[imageIndex], images[newIndex]] = [
+        images[newIndex],
+        images[imageIndex],
+      ];
       blocks[blockIndex] = { ...blocks[blockIndex], images };
       return { ...prev, contentBlocks: blocks };
     });
@@ -312,7 +404,11 @@ export function AdminPanel() {
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
               >
-                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                {showPassword ? (
+                  <EyeOff className="w-5 h-5" />
+                ) : (
+                  <Eye className="w-5 h-5" />
+                )}
               </button>
             </div>
             {passwordError && (
@@ -325,11 +421,17 @@ export function AdminPanel() {
               Log In
             </button>
           </form>
+          {!supabase && (
+            <p className="text-xs text-amber-600 bg-amber-50 rounded-lg p-3 mt-4 text-center">
+              Supabase not configured — changes are local only.
+            </p>
+          )}
         </div>
       </div>
     );
   }
 
+  // ---------- Edit form ----------
   if (isEditing) {
     return (
       <div className="min-h-screen bg-gray-50 pt-24 pb-20">
@@ -341,15 +443,22 @@ export function AdminPanel() {
             <div className="flex gap-2">
               <button
                 onClick={() => setIsEditing(false)}
+                disabled={saving}
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
               >
                 <X className="w-4 h-4" /> Cancel
               </button>
               <button
                 onClick={handleSave}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary rounded-md hover:bg-primary-hover"
+                disabled={saving}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary rounded-md hover:bg-primary-hover disabled:opacity-60"
               >
-                <Save className="w-4 h-4" /> Save
+                {saving ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                {saving ? "Saving..." : "Save"}
               </button>
             </div>
           </div>
@@ -358,7 +467,7 @@ export function AdminPanel() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20">
           <div className="bg-white p-6 rounded-xl shadow-sm space-y-6">
             {/* Language tabs */}
-            <div className="flex gap-2 mb-4">
+            <div className="flex items-center gap-2 mb-4">
               {SUPPORTED_LANGS.map((l) => (
                 <button
                   key={l}
@@ -372,6 +481,19 @@ export function AdminPanel() {
                   {LANG_LABELS[l]}
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={handleTranslateAll}
+                disabled={translating || !form.title.bg.trim()}
+                className="ml-auto inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-primary bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 disabled:opacity-50 transition-colors"
+              >
+                {translating ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Languages className="w-4 h-4" />
+                )}
+                {translating ? "Translating..." : "Translate from BG"}
+              </button>
             </div>
 
             <div>
@@ -410,14 +532,20 @@ export function AdminPanel() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Category
+                  Category ({LANG_LABELS[editLang]})
                 </label>
                 <input
                   type="text"
                   className="w-full rounded-md border border-gray-300 p-2 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none"
-                  value={form.category}
+                  value={form.category[editLang]}
                   onChange={(e) =>
-                    setForm((prev) => ({ ...prev, category: e.target.value }))
+                    setForm((prev) => ({
+                      ...prev,
+                      category: {
+                        ...prev.category,
+                        [editLang]: e.target.value,
+                      },
+                    }))
                   }
                   placeholder="e.g. Cultural, Theater, Education"
                 />
@@ -437,6 +565,27 @@ export function AdminPanel() {
               </div>
             </div>
 
+            {/* Highlight toggle */}
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.isHighlighted}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    isHighlighted: e.target.checked,
+                  }))
+                }
+                className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+              />
+              <Star
+                className={`w-4 h-4 ${form.isHighlighted ? "text-amber-500 fill-amber-500" : "text-gray-400"}`}
+              />
+              <span className="text-sm font-medium text-gray-700">
+                Show on home page
+              </span>
+            </label>
+
             {/* Cover Image */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -446,9 +595,16 @@ export function AdminPanel() {
                 <input
                   type="text"
                   className="flex-1 rounded-md border border-gray-300 p-2 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none"
-                  value={form.coverImage.startsWith("data:") ? "" : form.coverImage}
+                  value={
+                    form.coverImage.startsWith("data:")
+                      ? ""
+                      : form.coverImage
+                  }
                   onChange={(e) =>
-                    setForm((prev) => ({ ...prev, coverImage: e.target.value }))
+                    setForm((prev) => ({
+                      ...prev,
+                      coverImage: e.target.value,
+                    }))
                   }
                   placeholder="Paste URL or upload..."
                 />
@@ -509,7 +665,12 @@ export function AdminPanel() {
                           className="w-full rounded-md border border-gray-300 p-2 h-32 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none"
                           value={block.text[editLang]}
                           onChange={(e) =>
-                            updateBlockLang(idx, "text", editLang, e.target.value)
+                            updateBlockLang(
+                              idx,
+                              "text",
+                              editLang,
+                              e.target.value
+                            )
                           }
                           placeholder={`Type paragraph text here (${LANG_LABELS[editLang]})...`}
                         />
@@ -572,6 +733,7 @@ export function AdminPanel() {
     );
   }
 
+  // ---------- Event list ----------
   return (
     <div className="min-h-screen bg-gray-50 pt-28 pb-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -584,6 +746,27 @@ export function AdminPanel() {
               >
                 <ArrowLeft className="w-3 h-3" /> Back to site
               </Link>
+              {connectionStatus === "connected" && (
+                <span className="text-xs text-green-700 bg-green-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                  Connected
+                </span>
+              )}
+              {connectionStatus === "error" && (
+                <span className="text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
+                  Connection error
+                </span>
+              )}
+              {connectionStatus === "local" && (
+                <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                  Local mode
+                </span>
+              )}
+              {connectionStatus === "checking" && (
+                <span className="text-xs text-gray-500 bg-gray-50 px-2 py-0.5 rounded-full">
+                  Checking...
+                </span>
+              )}
             </div>
             <h1 className="text-3xl font-bold text-gray-900">Admin Panel</h1>
           </div>
@@ -598,7 +781,16 @@ export function AdminPanel() {
           </div>
         </div>
 
-        {events.length === 0 ? (
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div
+                key={i}
+                className="bg-white rounded-xl border border-gray-200 h-72 animate-pulse"
+              />
+            ))}
+          </div>
+        ) : events.length === 0 ? (
           <div className="bg-white rounded-xl border border-gray-200 px-6 py-16 text-center text-gray-500">
             No events yet. Click &quot;Add Event&quot; to create one.
           </div>
@@ -625,12 +817,19 @@ export function AdminPanel() {
                     )}
                     <div className="absolute top-3 left-3">
                       <span className="bg-white/95 backdrop-blur px-2.5 py-1 rounded-md text-xs font-bold text-primary uppercase tracking-wider">
-                        {event.category}
+                        {event.category[lang]}
                       </span>
                     </div>
-                    <div className="absolute top-3 right-3">
+                    <div className="absolute top-3 right-3 flex gap-1.5">
+                      {event.isHighlighted && (
+                        <span className="bg-amber-500 text-white p-1 rounded-md shadow-md">
+                          <Star className="w-3 h-3 fill-white" />
+                        </span>
+                      )}
                       <span className="bg-primary text-white px-2.5 py-1 rounded-md text-xs font-bold shadow-md flex items-center gap-1.5">
-                        {!isPast && <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />}
+                        {!isPast && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                        )}
                         {formatEventDate(event.date, lang)}
                       </span>
                     </div>
@@ -667,6 +866,8 @@ export function AdminPanel() {
   );
 }
 
+// ---------- Sub-components ----------
+
 function ImageBlockEditor({
   block,
   index,
@@ -679,7 +880,12 @@ function ImageBlockEditor({
   index: number;
   editLang: Lang;
   onUpdate: (index: number, field: string, value: string) => void;
-  onUpdateLang: (index: number, field: "text" | "caption", lang: Lang, value: string) => void;
+  onUpdateLang: (
+    index: number,
+    field: "text" | "caption",
+    lang: Lang,
+    value: string
+  ) => void;
   onUpload: (e: React.ChangeEvent<HTMLInputElement>, index: number) => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -713,7 +919,9 @@ function ImageBlockEditor({
         type="text"
         className="w-full rounded-md border border-gray-300 p-2 text-sm focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none"
         value={block.caption[editLang]}
-        onChange={(e) => onUpdateLang(index, "caption", editLang, e.target.value)}
+        onChange={(e) =>
+          onUpdateLang(index, "caption", editLang, e.target.value)
+        }
         placeholder={`Caption (${LANG_LABELS[editLang]}) — optional`}
       />
       {block.value && (
@@ -739,10 +947,19 @@ function CarouselBlockEditor({
   block: ContentBlock;
   index: number;
   editLang: Lang;
-  onUpdateLang: (index: number, field: "text" | "caption", lang: Lang, value: string) => void;
+  onUpdateLang: (
+    index: number,
+    field: "text" | "caption",
+    lang: Lang,
+    value: string
+  ) => void;
   onUpload: (e: React.ChangeEvent<HTMLInputElement>, index: number) => void;
   onRemoveImage: (blockIndex: number, imageIndex: number) => void;
-  onMoveImage: (blockIndex: number, imageIndex: number, direction: -1 | 1) => void;
+  onMoveImage: (
+    blockIndex: number,
+    imageIndex: number,
+    direction: -1 | 1
+  ) => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const images = block.images || [];
@@ -753,7 +970,9 @@ function CarouselBlockEditor({
         type="text"
         className="w-full rounded-md border border-gray-300 p-2 text-sm focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none"
         value={block.caption[editLang]}
-        onChange={(e) => onUpdateLang(index, "caption", editLang, e.target.value)}
+        onChange={(e) =>
+          onUpdateLang(index, "caption", editLang, e.target.value)
+        }
         placeholder={`Carousel caption (${LANG_LABELS[editLang]}) — optional`}
       />
 
