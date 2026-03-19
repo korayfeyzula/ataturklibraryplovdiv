@@ -1,4 +1,16 @@
+import { useEffect, useState, useCallback } from "react";
+import { supabase } from "./supabase";
 import type { Lang } from "./translations";
+
+// ---------- Types ----------
+
+export interface ContentBlock {
+  type: "text" | "image" | "carousel";
+  value: string;
+  text: Record<Lang, string>;
+  caption: Record<Lang, string>;
+  images?: string[];
+}
 
 export interface EventData {
   id: string;
@@ -7,10 +19,39 @@ export interface EventData {
   title: Record<Lang, string>;
   summary: Record<Lang, string>;
   coverImage: string;
+  contentBlocks: ContentBlock[];
+  isHighlighted: boolean;
 }
 
+// ---------- DB row → app type ----------
+
+interface EventRow {
+  id: string;
+  title: Record<Lang, string>;
+  category: Record<Lang, string>;
+  date: string;
+  summary: Record<Lang, string>;
+  cover_image: string;
+  content_blocks: ContentBlock[];
+  is_highlighted: boolean;
+}
+
+function rowToEvent(row: EventRow): EventData {
+  return {
+    id: row.id,
+    title: row.title,
+    category: row.category,
+    date: row.date,
+    summary: row.summary,
+    coverImage: row.cover_image,
+    contentBlocks: row.content_blocks ?? [],
+    isHighlighted: row.is_highlighted ?? false,
+  };
+}
+
+// ---------- Sample / fallback data ----------
+
 export const sampleEvents: EventData[] = [
-  // Upcoming
   {
     id: "1",
     category: { en: "Cultural", bg: "Културно", tr: "Kültürel" },
@@ -27,6 +68,8 @@ export const sampleEvents: EventData[] = [
     },
     coverImage:
       "https://images.unsplash.com/photo-1540575467063-178a50c2df87?q=80&w=800&auto=format&fit=crop",
+    contentBlocks: [],
+    isHighlighted: true,
   },
   {
     id: "2",
@@ -44,6 +87,8 @@ export const sampleEvents: EventData[] = [
     },
     coverImage:
       "https://images.unsplash.com/photo-1460518451285-97b6aa326961?q=80&w=800&auto=format&fit=crop",
+    contentBlocks: [],
+    isHighlighted: true,
   },
   {
     id: "3",
@@ -61,8 +106,9 @@ export const sampleEvents: EventData[] = [
     },
     coverImage:
       "https://images.unsplash.com/photo-1523240795612-9a054b0db644?q=80&w=800&auto=format&fit=crop",
+    contentBlocks: [],
+    isHighlighted: false,
   },
-  // Past
   {
     id: "4",
     category: { en: "Cultural", bg: "Културно", tr: "Kültürel" },
@@ -79,6 +125,8 @@ export const sampleEvents: EventData[] = [
     },
     coverImage:
       "https://images.unsplash.com/photo-1514320291840-2e0a9bf2a9ae?q=80&w=800&auto=format&fit=crop",
+    contentBlocks: [],
+    isHighlighted: true,
   },
   {
     id: "5",
@@ -96,6 +144,8 @@ export const sampleEvents: EventData[] = [
     },
     coverImage:
       "https://images.unsplash.com/photo-1596464716127-f2a82984de30?q=80&w=800&auto=format&fit=crop",
+    contentBlocks: [],
+    isHighlighted: false,
   },
   {
     id: "6",
@@ -113,11 +163,141 @@ export const sampleEvents: EventData[] = [
     },
     coverImage:
       "https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?q=80&w=800&auto=format&fit=crop",
+    contentBlocks: [],
+    isHighlighted: false,
   },
 ];
 
-/** IDs of events to show on the home page */
-export const HOME_EVENT_IDS = ["1", "2", "4"];
+// ---------- Supabase CRUD ----------
+
+export async function fetchEvents(): Promise<EventData[]> {
+  if (!supabase) return sampleEvents;
+
+  const { data, error } = await supabase
+    .from("events")
+    .select("*")
+    .order("date", { ascending: false });
+
+  if (error || !data) return sampleEvents;
+  return data.map(rowToEvent);
+}
+
+export async function fetchHighlightedEvents(): Promise<EventData[]> {
+  if (!supabase) {
+    // Fallback: 2 upcoming + 1 past
+    const now = new Date();
+    const upcoming = sampleEvents
+      .filter((e) => new Date(e.date) >= now)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .slice(0, 2);
+    const past = sampleEvents
+      .filter((e) => new Date(e.date) < now)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 1);
+    return [...upcoming, ...past];
+  }
+
+  const { data, error } = await supabase
+    .from("events")
+    .select("*")
+    .eq("is_highlighted", true)
+    .order("date", { ascending: false })
+    .limit(3);
+
+  if (error || !data) return sampleEvents.slice(0, 3);
+  return data.map(rowToEvent);
+}
+
+export async function createEvent(
+  event: Omit<EventData, "id">
+): Promise<EventData | null> {
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from("events")
+    .insert({
+      title: event.title,
+      category: event.category,
+      date: event.date,
+      summary: event.summary,
+      cover_image: event.coverImage,
+      content_blocks: event.contentBlocks,
+      is_highlighted: event.isHighlighted,
+    })
+    .select()
+    .single();
+
+  if (error || !data) return null;
+  return rowToEvent(data);
+}
+
+export async function updateEvent(
+  id: string,
+  event: Omit<EventData, "id">
+): Promise<EventData | null> {
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from("events")
+    .update({
+      title: event.title,
+      category: event.category,
+      date: event.date,
+      summary: event.summary,
+      cover_image: event.coverImage,
+      content_blocks: event.contentBlocks,
+      is_highlighted: event.isHighlighted,
+    })
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error || !data) return null;
+  return rowToEvent(data);
+}
+
+export async function deleteEvent(id: string): Promise<boolean> {
+  if (!supabase) return false;
+
+  const { error } = await supabase.from("events").delete().eq("id", id);
+  return !error;
+}
+
+// ---------- React hook ----------
+
+export function useEvents() {
+  const [events, setEvents] = useState<EventData[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const data = await fetchEvents();
+    setEvents(data);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  return { events, loading, reload: load, setEvents };
+}
+
+export function useHighlightedEvents() {
+  const [events, setEvents] = useState<EventData[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchHighlightedEvents().then((data) => {
+      setEvents(data);
+      setLoading(false);
+    });
+  }, []);
+
+  return { events, loading };
+}
+
+// ---------- Helpers ----------
 
 export function formatEventDate(date: string, lang: string) {
   const locale =

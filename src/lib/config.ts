@@ -7,6 +7,7 @@ export const SITE_NAME = "Mustafa Kemal Atatürk Community Center";
 export const SITE_NAME_ALT =
   'Народно читалище „Мустафа Кемал Ататюрк – 2003"';
 export const FOUNDING_YEAR = "2003";
+export const FOUNDING_DATE = "2003-01-01";
 
 // Contact
 export const CONTACT = {
