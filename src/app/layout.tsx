@@ -8,8 +8,9 @@ import {
   SITE_NAME,
   SITE_NAME_ALT,
   CONTACT,
-  FOUNDING_YEAR,
+  FOUNDING_DATE,
   OPENING_HOURS,
+  SOCIAL,
 } from "@/lib/config";
 import "./globals.css";
 
@@ -54,7 +55,7 @@ export const metadata: Metadata = {
 
 const jsonLd = {
   "@context": "https://schema.org",
-  "@type": "Library",
+  "@type": ["Library", "CivicStructure"],
   name: SITE_NAME,
   alternateName: SITE_NAME_ALT,
   url: SITE_URL,
@@ -63,11 +64,14 @@ const jsonLd = {
   address: {
     "@type": "PostalAddress",
     addressLocality: "Plovdiv",
+    addressRegion: "Plovdiv Province",
     addressCountry: "BG",
   },
   telephone: CONTACT.phoneRaw,
   email: CONTACT.email,
-  foundingDate: FOUNDING_YEAR,
+  foundingDate: FOUNDING_DATE,
+  inLanguage: ["bg", "tr", "en"],
+  sameAs: [SOCIAL.facebook, SOCIAL.instagram].filter((url) => url !== "#"),
   openingHoursSpecification: OPENING_HOURS.map((h) => ({
     "@type": "OpeningHoursSpecification",
     dayOfWeek: h.days,
@@ -82,7 +86,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="bg">
       <head>
         <script
           type="application/ld+json"
