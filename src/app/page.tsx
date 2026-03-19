@@ -12,12 +12,8 @@ import {
   Globe,
 } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
-import { sampleEvents, HOME_EVENT_IDS } from "@/lib/events";
+import { useHighlightedEvents } from "@/lib/events";
 import { EventCard } from "@/components/event-card";
-
-const highlightEvents = sampleEvents.filter((e) =>
-  HOME_EVENT_IDS.includes(e.id)
-);
 
 function FeatureCard({
   icon: Icon,
@@ -49,11 +45,12 @@ function FeatureCard({
 
 export default function Home() {
   const { lang, t } = useLanguage();
+  const { events: highlightEvents, loading: eventsLoading } = useHighlightedEvents();
 
   return (
     <>
       {/* Hero */}
-      <section className="relative bg-gray-900 min-h-screen w-full flex items-center overflow-hidden">
+      <section className="relative bg-gray-900 h-[80vh] w-full flex items-center overflow-hidden">
         <div className="absolute inset-0 z-0">
           <img
             src="/hero.jpeg"
@@ -220,14 +217,18 @@ export default function Home() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {highlightEvents.map((event) => (
-              <EventCard
-                key={event.id}
-                event={event}
-                lang={lang}
-                readMoreLabel={t.events.readMore}
-              />
-            ))}
+            {eventsLoading
+              ? Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="bg-gray-100 rounded-xl h-80 animate-pulse" />
+                ))
+              : highlightEvents.map((event) => (
+                  <EventCard
+                    key={event.id}
+                    event={event}
+                    lang={lang}
+                    readMoreLabel={t.events.readMore}
+                  />
+                ))}
           </div>
 
           <div className="mt-12 text-center sm:hidden">

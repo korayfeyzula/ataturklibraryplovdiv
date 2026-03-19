@@ -2,13 +2,14 @@
 
 /* eslint-disable @next/next/no-img-element */
 import { useLanguage } from "@/lib/language-context";
-import { sampleEvents } from "@/lib/events";
+import { useEvents } from "@/lib/events";
 import { EventCard } from "@/components/event-card";
 
 export function EventsContent() {
   const { lang, t } = useLanguage();
+  const { events, loading } = useEvents();
 
-  const sorted = [...sampleEvents].sort(
+  const sorted = [...events].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
 
@@ -34,16 +35,26 @@ export function EventsContent() {
       </div>
 
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-16">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {sorted.map((event) => (
-            <EventCard
-              key={event.id}
-              event={event}
-              lang={lang}
-              readMoreLabel={t.events.readMore}
-            />
-          ))}
-        </div>
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="bg-gray-100 rounded-xl h-80 animate-pulse" />
+            ))}
+          </div>
+        ) : sorted.length === 0 ? (
+          <p className="text-center text-gray-500 py-12">{t.events.noEvents}</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {sorted.map((event) => (
+              <EventCard
+                key={event.id}
+                event={event}
+                lang={lang}
+                readMoreLabel={t.events.readMore}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </>
   );
