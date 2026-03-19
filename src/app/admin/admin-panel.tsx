@@ -9,7 +9,8 @@ import {
   Trash2,
   Save,
   X,
-  GripVertical,
+  ChevronUp,
+  ChevronDown,
   ImageIcon,
   Type,
   ArrowLeft,
@@ -91,7 +92,7 @@ export function AdminPanel() {
   const [isEditing, setIsEditing] = useState(false);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [form, setForm] = useState<EventFormData>(emptyForm);
-  const [editLang, setEditLang] = useState<Lang>("en");
+  const [editLang, setEditLang] = useState<Lang>("bg");
   const [saving, setSaving] = useState(false);
   const [translating, setTranslating] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<
@@ -152,7 +153,7 @@ export function AdminPanel() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Are you sure you want to delete this event?")) return;
+    if (!confirm("Сигурни ли сте, че искате да изтриете това събитие?")) return;
 
     if (supabase) {
       await deleteEvent(id);
@@ -283,6 +284,16 @@ export function AdminPanel() {
     });
   }
 
+  function moveBlock(index: number, direction: -1 | 1) {
+    setForm((prev) => {
+      const blocks = [...prev.contentBlocks];
+      const newIndex = index + direction;
+      if (newIndex < 0 || newIndex >= blocks.length) return prev;
+      [blocks[index], blocks[newIndex]] = [blocks[newIndex], blocks[index]];
+      return { ...prev, contentBlocks: blocks };
+    });
+  }
+
   function removeBlock(index: number) {
     setForm((prev) => ({
       ...prev,
@@ -377,10 +388,10 @@ export function AdminPanel() {
             </div>
           </div>
           <h1 className="text-2xl font-bold text-gray-900 text-center mb-2">
-            Admin Access
+            Администрация
           </h1>
           <p className="text-sm text-gray-500 text-center mb-6">
-            Enter the password to continue
+            Въведете парола за достъп
           </p>
           <form onSubmit={handleLogin}>
             <div className="relative">
@@ -396,7 +407,7 @@ export function AdminPanel() {
                   setPassword(e.target.value);
                   setPasswordError(false);
                 }}
-                placeholder="Password"
+                placeholder="Парола"
                 autoFocus
               />
               <button
@@ -412,13 +423,13 @@ export function AdminPanel() {
               </button>
             </div>
             {passwordError && (
-              <p className="text-red-500 text-sm mt-2">Incorrect password</p>
+              <p className="text-red-500 text-sm mt-2">Грешна парола</p>
             )}
             <button
               type="submit"
               className="w-full mt-4 bg-primary text-white font-semibold py-3 rounded-lg hover:bg-primary-hover transition-colors"
             >
-              Log In
+              Вход
             </button>
           </form>
           {!supabase && (
@@ -438,7 +449,7 @@ export function AdminPanel() {
         <div className="bg-white border-b border-gray-200 fixed top-20 left-0 right-0 z-20">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
             <h1 className="text-xl font-bold text-gray-800">
-              {currentId ? "Edit Event" : "Add New Event"}
+              {currentId ? "Редактиране" : "Ново събитие"}
             </h1>
             <div className="flex gap-2">
               <button
@@ -446,7 +457,7 @@ export function AdminPanel() {
                 disabled={saving}
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
               >
-                <X className="w-4 h-4" /> Cancel
+                <X className="w-4 h-4" /> Отказ
               </button>
               <button
                 onClick={handleSave}
@@ -458,7 +469,7 @@ export function AdminPanel() {
                 ) : (
                   <Save className="w-4 h-4" />
                 )}
-                {saving ? "Saving..." : "Save"}
+                {saving ? "Запазва се..." : "Запази"}
               </button>
             </div>
           </div>
@@ -466,39 +477,9 @@ export function AdminPanel() {
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20">
           <div className="bg-white p-6 rounded-xl shadow-sm space-y-6">
-            {/* Language tabs */}
-            <div className="flex items-center gap-2 mb-4">
-              {SUPPORTED_LANGS.map((l) => (
-                <button
-                  key={l}
-                  onClick={() => setEditLang(l)}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                    editLang === l
-                      ? "bg-primary text-white"
-                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                  }`}
-                >
-                  {LANG_LABELS[l]}
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={handleTranslateAll}
-                disabled={translating || !form.title.bg.trim()}
-                className="ml-auto inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-primary bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 disabled:opacity-50 transition-colors"
-              >
-                {translating ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Languages className="w-4 h-4" />
-                )}
-                {translating ? "Translating..." : "Translate from BG"}
-              </button>
-            </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Title ({LANG_LABELS[editLang]})
+                Заглавие
               </label>
               <input
                 type="text"
@@ -515,7 +496,7 @@ export function AdminPanel() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Summary ({LANG_LABELS[editLang]})
+                Резюме
               </label>
               <textarea
                 className="w-full rounded-md border border-gray-300 p-2 h-24 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none"
@@ -532,7 +513,7 @@ export function AdminPanel() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Category ({LANG_LABELS[editLang]})
+                  Категория
                 </label>
                 <input
                   type="text"
@@ -547,12 +528,12 @@ export function AdminPanel() {
                       },
                     }))
                   }
-                  placeholder="e.g. Cultural, Theater, Education"
+                  placeholder="напр. Култура, Театър, Образование"
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Date
+                  Дата
                 </label>
                 <input
                   type="date"
@@ -582,14 +563,14 @@ export function AdminPanel() {
                 className={`w-4 h-4 ${form.isHighlighted ? "text-amber-500 fill-amber-500" : "text-gray-400"}`}
               />
               <span className="text-sm font-medium text-gray-700">
-                Show on home page
+                Покажи на началната страница
               </span>
             </label>
 
             {/* Cover Image */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Cover Image
+                Корична снимка
               </label>
               <div className="flex gap-2">
                 <input
@@ -606,7 +587,7 @@ export function AdminPanel() {
                       coverImage: e.target.value,
                     }))
                   }
-                  placeholder="Paste URL or upload..."
+                  placeholder="Постави URL или качи..."
                 />
                 <input
                   ref={coverInputRef}
@@ -620,7 +601,7 @@ export function AdminPanel() {
                   onClick={() => coverInputRef.current?.click()}
                   className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
                 >
-                  <Upload className="w-4 h-4" /> Upload
+                  <Upload className="w-4 h-4" /> Качи
                 </button>
               </div>
               {form.coverImage && (
@@ -634,9 +615,24 @@ export function AdminPanel() {
 
             {/* Content Blocks */}
             <div className="border-t pt-6">
-              <h3 className="text-lg font-bold text-gray-900 mb-4">
-                Content Builder
-              </h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-gray-900">
+                  Съдържание
+                </h3>
+                <button
+                  type="button"
+                  onClick={handleTranslateAll}
+                  disabled={translating || !form.title.bg.trim()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-primary bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 disabled:opacity-50 transition-colors"
+                >
+                  {translating ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Languages className="w-4 h-4" />
+                  )}
+                  {translating ? "Превежда се..." : "Преведи на EN/TR"}
+                </button>
+              </div>
 
               <div className="space-y-4 mb-6">
                 {form.contentBlocks.map((block, idx) => (
@@ -644,8 +640,23 @@ export function AdminPanel() {
                     key={idx}
                     className="bg-gray-50 border border-gray-200 rounded-lg p-4 relative group"
                   >
-                    <div className="absolute top-2 left-2 text-gray-400">
-                      <GripVertical className="w-5 h-5" />
+                    <div className="absolute top-2 left-2 flex flex-col gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => moveBlock(idx, -1)}
+                        disabled={idx === 0}
+                        className="p-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-20 transition-colors"
+                      >
+                        <ChevronUp className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveBlock(idx, 1)}
+                        disabled={idx === form.contentBlocks.length - 1}
+                        className="p-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-20 transition-colors"
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
                     </div>
                     <button
                       type="button"
@@ -672,7 +683,7 @@ export function AdminPanel() {
                               e.target.value
                             )
                           }
-                          placeholder={`Type paragraph text here (${LANG_LABELS[editLang]})...`}
+                          placeholder="Въведете текст тук..."
                         />
                       )}
 
@@ -709,21 +720,21 @@ export function AdminPanel() {
                   onClick={() => addBlock("text")}
                   className="inline-flex items-center gap-1 px-4 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
                 >
-                  <Type className="w-4 h-4" /> Add Text
+                  <Type className="w-4 h-4" /> Текст
                 </button>
                 <button
                   type="button"
                   onClick={() => addBlock("image")}
                   className="inline-flex items-center gap-1 px-4 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
                 >
-                  <ImageIcon className="w-4 h-4" /> Add Image
+                  <ImageIcon className="w-4 h-4" /> Снимка
                 </button>
                 <button
                   type="button"
                   onClick={() => addBlock("carousel")}
                   className="inline-flex items-center gap-1 px-4 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
                 >
-                  <Images className="w-4 h-4" /> Add Carousel
+                  <Images className="w-4 h-4" /> Галерия
                 </button>
               </div>
             </div>
@@ -768,7 +779,7 @@ export function AdminPanel() {
                 </span>
               )}
             </div>
-            <h1 className="text-3xl font-bold text-gray-900">Admin Panel</h1>
+            <h1 className="text-3xl font-bold text-gray-900">Администрация</h1>
           </div>
           <div className="flex items-center gap-4">
             <LanguageSwitcher />
@@ -776,7 +787,7 @@ export function AdminPanel() {
               onClick={handleAddNew}
               className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary rounded-md hover:bg-primary-hover shadow-sm"
             >
-              <Plus className="w-4 h-4" /> Add Event
+              <Plus className="w-4 h-4" /> Ново събитие
             </button>
           </div>
         </div>
@@ -792,7 +803,7 @@ export function AdminPanel() {
           </div>
         ) : events.length === 0 ? (
           <div className="bg-white rounded-xl border border-gray-200 px-6 py-16 text-center text-gray-500">
-            No events yet. Click &quot;Add Event&quot; to create one.
+            Все още няма събития. Натиснете &quot;Ново събитие&quot; за да създадете.
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -898,7 +909,7 @@ function ImageBlockEditor({
           className="flex-1 rounded-md border border-gray-300 p-2 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none"
           value={block.value.startsWith("data:") ? "" : block.value}
           onChange={(e) => onUpdate(index, "value", e.target.value)}
-          placeholder="Paste image URL or upload..."
+          placeholder="Постави URL или качи..."
         />
         <input
           ref={fileRef}
@@ -922,7 +933,7 @@ function ImageBlockEditor({
         onChange={(e) =>
           onUpdateLang(index, "caption", editLang, e.target.value)
         }
-        placeholder={`Caption (${LANG_LABELS[editLang]}) — optional`}
+        placeholder="Описание — по избор"
       />
       {block.value && (
         <img
@@ -973,7 +984,7 @@ function CarouselBlockEditor({
         onChange={(e) =>
           onUpdateLang(index, "caption", editLang, e.target.value)
         }
-        placeholder={`Carousel caption (${LANG_LABELS[editLang]}) — optional`}
+        placeholder="Описание на галерията — по избор"
       />
 
       {images.length > 0 && (
@@ -1035,9 +1046,9 @@ function CarouselBlockEditor({
         onClick={() => fileRef.current?.click()}
         className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-dashed border-gray-300 rounded-lg hover:bg-gray-50 w-full justify-center cursor-pointer"
       >
-        <Upload className="w-4 h-4" /> Upload Images
+        <Upload className="w-4 h-4" /> Качи снимки
         {images.length > 0 && (
-          <span className="text-gray-400 ml-1">({images.length} added)</span>
+          <span className="text-gray-400 ml-1">({images.length} добавени)</span>
         )}
       </button>
     </div>
